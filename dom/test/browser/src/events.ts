@@ -1334,4 +1334,59 @@ describe('DOMSource.events()', function() {
       });
     run();
   });
+
+  it('should clean data structures if event listeners are removed', function(
+    done,
+  ) {
+    let clicked = 0;
+    function child(sources: {DOM: DOMSource}) {
+      const click$ = sources.DOM.events('click').addListener({
+        next: () => {
+          clicked++;
+        },
+      });
+      return {
+        DOM: xs.of(div('.parent', [button('.button')])),
+      };
+    }
+
+    function app(sources: {DOM: DOMSource}) {
+      const childDOM$ = xs
+        .periodic(100)
+        .take(1)
+        .mapTo(xs.of(null as any))
+        .startWith(child(sources).DOM)
+        .flatten();
+
+      return {
+        DOM: childDOM$,
+      };
+    }
+
+    const {sinks, sources, run} = setup(app, {
+      DOM: makeDOMDriver(createRenderTarget()),
+    });
+
+    sources.DOM
+      .select(':root')
+      .element()
+      .drop(1)
+      .take(1)
+      .addListener({
+        next: (root: Element) => {
+          const button = root.querySelector('.button') as HTMLButtonElement;
+          setTimeout(() => button.click());
+          assert.doesNotThrow(function() {
+            setTimeout(() => button.click(), 150);
+            setTimeout(() => {
+              const delegator: any = (sources as any).DOM._isolateModule
+                .eventDelegator;
+              assert.strictEqual(clicked, 1);
+              assert.strictEqual(delegator.domListeners.has('click'), false);
+            }, 200);
+          });
+        },
+      });
+    run();
+  });
 });
